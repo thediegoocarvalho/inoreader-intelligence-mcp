@@ -18,10 +18,10 @@ def get_access_token():
         }
     )
 
-    response.raise_for_status()
-
-    return response.json()["access_token"]
-
+    return {
+        "status_code": response.status_code,
+        "response": response.text
+    }
 
 @app.get("/")
 def health():
@@ -40,12 +40,7 @@ def config_check():
 
 @app.get("/token")
 def token_check():
-    token = get_access_token()
-
-    return {
-        "status": "ok",
-        "token_received": bool(token)
-    }
+    return get_access_token()
 
 @mcp.tool()
 def user_info():
