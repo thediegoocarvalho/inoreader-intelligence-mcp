@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
+import os
 
 app = FastAPI()
 
@@ -11,6 +12,14 @@ def health():
     return {
         "status": "online",
         "service": "Inoreader Intelligence MCP"
+    }
+
+@app.get("/config")
+def config_check():
+    return {
+        "client_id": bool(os.getenv("INOREADER_CLIENT_ID")),
+        "client_secret": bool(os.getenv("INOREADER_CLIENT_SECRET")),
+        "refresh_token": bool(os.getenv("INOREADER_REFRESH_TOKEN"))
     }
 
 
