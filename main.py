@@ -1,6 +1,17 @@
+from fastapi import FastAPI
 from mcp.server.fastmcp import FastMCP
 
+app = FastAPI()
+
 mcp = FastMCP("Inoreader Intelligence MCP")
+
+
+@app.get("/")
+def health():
+    return {
+        "status": "online",
+        "service": "Inoreader Intelligence MCP"
+    }
 
 
 @mcp.tool()
@@ -10,7 +21,6 @@ def user_info():
     """
     return {
         "status": "ok",
-        "service": "Inoreader Intelligence MCP",
         "operation": "user_info"
     }
 
@@ -40,7 +50,3 @@ def stream_contents(
         "stream_id": stream_id,
         "items": []
     }
-
-
-if __name__ == "__main__":
-    mcp.run()
