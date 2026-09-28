@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 import os
 import secrets
 import requests
@@ -59,10 +60,21 @@ def inoreader_get(path: str, params: dict | None = None):
     return response.json()
 
 
-# Cria primeiro a aplicação MCP.
-# streamable_http_path="/" faz com que, ao montar em /mcp,
-# o endpoint público final seja /mcp.
-mcp_app = mcp.streamable_http_app()
+# Segurança do transporte MCP para o hostname público do Railway.
+security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=True,
+    allowed_hosts=[
+        "inoreader-intelligence-mcp-production.up.railway.app",
+        "inoreader-intelligence-mcp-production.up.railway.app:*",
+    ],
+    allowed_origins=[],
+)
+
+# Cria a aplicação MCP com o hostname público autorizado.
+mcp_app = mcp.streamable_http_app(
+    transport_security=security,
+)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
