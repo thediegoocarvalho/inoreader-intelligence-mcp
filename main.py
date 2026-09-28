@@ -12,7 +12,16 @@ import requests
 mcp = FastMCP(
     "Inoreader Intelligence MCP",
     json_response=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[
+            "inoreader-intelligence-mcp-production.up.railway.app",
+            "inoreader-intelligence-mcp-production.up.railway.app:*",
+        ],
+        allowed_origins=[],
+    ),
 )
+
 
 REDIRECT_URI = (
     "https://inoreader-intelligence-mcp-production.up.railway.app/oauth/callback"
@@ -61,19 +70,7 @@ def inoreader_get(path: str, params: dict | None = None):
 
 
 # Segurança do transporte MCP para o hostname público do Railway.
-security = TransportSecuritySettings(
-    enable_dns_rebinding_protection=True,
-    allowed_hosts=[
-        "inoreader-intelligence-mcp-production.up.railway.app",
-        "inoreader-intelligence-mcp-production.up.railway.app:*",
-    ],
-    allowed_origins=[],
-)
-
-# Cria a aplicação MCP com o hostname público autorizado.
-mcp_app = mcp.streamable_http_app(
-    transport_security=security,
-)
+mcp_app = mcp.streamable_http_app()
 
 
 @asynccontextmanager
