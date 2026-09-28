@@ -70,7 +70,10 @@ def inoreader_get(path: str, params: dict | None = None):
 
 
 # Segurança do transporte MCP para o hostname público do Railway.
-mcp_app = mcp.streamable_http_app()
+mcp_app = mcp.streamable_http_app(
+    streamable_http_path="/",
+)
+
 
 
 @asynccontextmanager
