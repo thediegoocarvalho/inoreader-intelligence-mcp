@@ -8,7 +8,10 @@ import secrets
 import requests
 
 
-mcp = FastMCP("Inoreader Intelligence MCP")
+mcp = FastMCP(
+    "Inoreader Intelligence MCP",
+    json_response=True,
+)
 
 REDIRECT_URI = (
     "https://inoreader-intelligence-mcp-production.up.railway.app/oauth/callback"
@@ -59,11 +62,7 @@ def inoreader_get(path: str, params: dict | None = None):
 # Cria primeiro a aplicação MCP.
 # streamable_http_path="/" faz com que, ao montar em /mcp,
 # o endpoint público final seja /mcp.
-mcp_app = mcp.streamable_http_app(
-    streamable_http_path="/",
-    json_response=True,
-)
-
+mcp_app = mcp.streamable_http_app()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
