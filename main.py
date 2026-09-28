@@ -71,7 +71,33 @@ def oauth_login():
     ).prepare()
 
     return RedirectResponse(request.url)
+    
+@app.get("/oauth/debug")
+def oauth_debug():
+    authorization_url = "https://www.inoreader.com/oauth2/auth"
 
+    params = {
+        "client_id": os.getenv("INOREADER_CLIENT_ID"),
+        "redirect_uri": REDIRECT_URI,
+        "response_type": "code",
+        "scope": "read",
+    }
+
+    request = requests.Request(
+        "GET",
+        authorization_url,
+        params=params,
+    ).prepare()
+
+    client_id = os.getenv("INOREADER_CLIENT_ID")
+
+    return {
+        "authorization_url": request.url,
+        "client_id_present": bool(client_id),
+        "client_id_length": len(client_id) if client_id else 0,
+        "redirect_uri": REDIRECT_URI,
+        "scope": "read",
+    }
 
 @app.get("/oauth/callback")
 def oauth_callback(code: str):
