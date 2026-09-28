@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 from mcp.server.fastmcp import FastMCP
@@ -5,8 +7,6 @@ import os
 import secrets
 import requests
 
-
-app = FastAPI()
 
 mcp = FastMCP("Inoreader Intelligence MCP")
 
@@ -16,10 +16,13 @@ REDIRECT_URI = (
 
 OAUTH_STATE_COOKIE = "inoreader_oauth_state"
 
+INOREADER_TOKEN_URL = "https://www.inoreader.com/oauth2/token"
+INOREADER_API_BASE = "https://www.inoreader.com/reader/api/0"
+
 
 def get_access_token():
     response = requests.post(
-        "https://www.inoreader.com/oauth2/token",
+        INOREADER_TOKEN_URL,
         data={
             "client_id": os.getenv("INOREADER_CLIENT_ID"),
             "client_secret": os.getenv("INOREADER_CLIENT_SECRET"),
@@ -29,10 +32,50 @@ def get_access_token():
         timeout=20,
     )
 
-    return {
-        "status_code": response.status_code,
-        "response": response.text,
-    }
+    response.raise_for_status()
+
+    token_data = response.json()
+
+    return token_data["access_token"]
+
+
+def inoreader_get(path: str, params: dict | None = None):
+    access_token = get_access_token()
+
+    response = requests.get(
+        f"{INOREADER_API_BASE}{path}",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+        },
+        params=params,
+        timeout=30,
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+# Cria primeiro a aplicação MCP.
+# streamable_http_path="/" faz com que, ao montar em /mcp,
+# o endpoint público final seja /mcp.
+mcp_app = mcp.streamable_http_app(
+    streamable_http_path="/",
+    json_response=True,
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+# Endpoint MCP público:
+# https://inoreader-intelligence-mcp-production.up.railway.app/mcp
+app.mount("/mcp", mcp_app)
 
 
 @app.get("/")
@@ -40,6 +83,7 @@ def health():
     return {
         "status": "online",
         "service": "Inoreader Intelligence MCP",
+        "mcp_endpoint": "/mcp",
     }
 
 
@@ -54,7 +98,22 @@ def config_check():
 
 @app.get("/token")
 def token_check():
-    return get_access_token()
+    try:
+        token = get_access_token()
+
+        return {
+            "status": "ok",
+            "access_token_received": bool(token),
+        }
+
+    except requests.RequestException as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": str(exc),
+            },
+        )
 
 
 @app.get("/oauth/login")
@@ -133,7 +192,7 @@ def oauth_callback(
         )
 
     response = requests.post(
-        "https://www.inoreader.com/oauth2/token",
+        INOREADER_TOKEN_URL,
         data={
             "code": code,
             "client_id": os.getenv("INOREADER_CLIENT_ID"),
@@ -157,22 +216,20 @@ def oauth_callback(
     token_data = response.json()
 
     result = JSONResponse(
-    content={
-        "status": "authorized",
-        "access_token_received": bool(
-            token_data.get("access_token")
-        ),
-        "refresh_token_received": bool(
-            token_data.get("refresh_token")
-        ),
-        "refresh_token": token_data.get("refresh_token"),
-        "message": (
-            "Copie o refresh_token diretamente para a variável "
-            "INOREADER_REFRESH_TOKEN no Railway. "
-            "Não compartilhe este valor."
-        ),
-    }
-)
+        content={
+            "status": "authorized",
+            "access_token_received": bool(
+                token_data.get("access_token")
+            ),
+            "refresh_token_received": bool(
+                token_data.get("refresh_token")
+            ),
+            "message": (
+                "OAuth concluído. Configure o refresh token "
+                "somente nas variáveis seguras do Railway."
+            ),
+        }
+    )
 
     result.delete_cookie(OAUTH_STATE_COOKIE)
 
@@ -183,20 +240,43 @@ def oauth_callback(
 def user_info():
     """
     Retorna informações do usuário autenticado no Inoreader.
+    Operação exclusivamente de leitura.
     """
-    return {
-        "status": "ok",
-        "operation": "user_info",
-    }
+    return inoreader_get("/user-info")
 
 
 @mcp.tool()
 def subscription_list():
     """
-    Retorna os feeds assinados no Inoreader.
+    Retorna a lista de feeds assinados no Inoreader.
+    Operação exclusivamente de leitura.
     """
-    return {
-        "status": "ok",
-        "operation": "subscription_list",
-        "subscriptions": [],
-    }
+    return inoreader_get("/subscription/list")
+
+
+@mcp.tool()
+def stream_contents(
+    stream_id: str,
+    count: int = 20,
+):
+    """
+    Retorna artigos de um stream do Inoreader.
+    Operação exclusivamente de leitura.
+
+    Args:
+        stream_id: ID do stream/feed/tag.
+        count: quantidade máxima de itens.
+    """
+
+    if count < 1:
+        count = 1
+
+    if count > 100:
+        count = 100
+
+    return inoreader_get(
+        f"/stream/contents/{stream_id}",
+        params={
+            "n": count,
+        },
+    )
