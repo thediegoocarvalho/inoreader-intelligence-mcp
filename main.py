@@ -263,30 +263,27 @@ def subscription_list():
     """
     return inoreader_get("/subscription/list")
 
-
 @mcp.tool()
 def stream_contents(
     stream_id: str,
-    count: int = 20,
+    count: int = 100,
+    continuation: str | None = None,
 ):
-    """
-    Retorna artigos de um stream do Inoreader.
-    Operação exclusivamente de leitura.
-
-    Args:
-        stream_id: ID do stream/feed/tag.
-        count: quantidade máxima de itens.
-    """
-
     if count < 1:
         count = 1
-
     if count > 100:
         count = 100
 
+    params = {
+        "n": count,
+    }
+
+    if continuation:
+        params["c"] = continuation
+
     return inoreader_get(
         f"/stream/contents/{stream_id}",
-        params={
-            "n": count,
-        },
+        params=params,
     )
+
+
