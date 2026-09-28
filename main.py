@@ -286,4 +286,55 @@ def stream_contents(
         params=params,
     )
 
+@mcp.tool()
+def stream_contents_paged(
+    stream_id: str,
+    max_items: int = 500,
+    page_size: int = 100,
+):
+    if max_items < 1:
+        max_items = 1
+    if max_items > 3000:
+        max_items = 3000
+
+    if page_size < 1:
+        page_size = 1
+    if page_size > 100:
+        page_size = 100
+
+    items = []
+    continuation = None
+    pages = 0
+
+    while len(items) < max_items:
+        params = {
+            "n": min(page_size, max_items - len(items)),
+        }
+
+        if continuation:
+            params["c"] = continuation
+
+        data = inoreader_get(
+            f"/stream/contents/{stream_id}",
+            params=params,
+        )
+
+        page_items = data.get("items", [])
+        if not page_items:
+            break
+
+        items.extend(page_items)
+        pages += 1
+
+        continuation = data.get("continuation")
+
+        if not continuation:
+            break
+
+    return {
+        "items": items,
+        "items_returned": len(items),
+        "pages_fetched": pages,
+        "continuation": continuation,
+    }
 
