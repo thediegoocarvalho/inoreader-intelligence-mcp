@@ -156,7 +156,7 @@ def oauth_callback(
 
     token_data = response.json()
 
-result = JSONResponse(
+    result = JSONResponse(
     content={
         "status": "authorized",
         "access_token_received": bool(
