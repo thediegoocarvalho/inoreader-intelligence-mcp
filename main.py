@@ -156,21 +156,23 @@ def oauth_callback(
 
     token_data = response.json()
 
-    result = JSONResponse(
-        content={
-            "status": "authorized",
-            "access_token_received": bool(
-                token_data.get("access_token")
-            ),
-            "refresh_token_received": bool(
-                token_data.get("refresh_token")
-            ),
-            "message": (
-                "OAuth autorizado. Tokens recebidos, "
-                "mas não exibidos por segurança."
-            ),
-        }
-    )
+result = JSONResponse(
+    content={
+        "status": "authorized",
+        "access_token_received": bool(
+            token_data.get("access_token")
+        ),
+        "refresh_token_received": bool(
+            token_data.get("refresh_token")
+        ),
+        "refresh_token": token_data.get("refresh_token"),
+        "message": (
+            "Copie o refresh_token diretamente para a variável "
+            "INOREADER_REFRESH_TOKEN no Railway. "
+            "Não compartilhe este valor."
+        ),
+    }
+)
 
     result.delete_cookie(OAUTH_STATE_COOKIE)
 
