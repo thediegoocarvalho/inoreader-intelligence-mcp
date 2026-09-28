@@ -1,7 +1,8 @@
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import RedirectResponse, JSONResponse
 from mcp.server.fastmcp import FastMCP
 import os
+import secrets
 import requests
 
 
@@ -13,6 +14,8 @@ REDIRECT_URI = (
     "https://inoreader-intelligence-mcp-production.up.railway.app/oauth/callback"
 )
 
+OAUTH_STATE_COOKIE = "inoreader_oauth_state"
+
 
 def get_access_token():
     response = requests.post(
@@ -23,6 +26,7 @@ def get_access_token():
             "refresh_token": os.getenv("INOREADER_REFRESH_TOKEN"),
             "grant_type": "refresh_token",
         },
+        timeout=20,
     )
 
     return {
@@ -55,6 +59,8 @@ def token_check():
 
 @app.get("/oauth/login")
 def oauth_login():
+    state = secrets.token_urlsafe(32)
+
     authorization_url = "https://www.inoreader.com/oauth2/auth"
 
     params = {
@@ -62,45 +68,70 @@ def oauth_login():
         "redirect_uri": REDIRECT_URI,
         "response_type": "code",
         "scope": "read",
+        "state": state,
     }
 
-    request = requests.Request(
+    prepared = requests.Request(
         "GET",
         authorization_url,
         params=params,
     ).prepare()
 
-    return RedirectResponse(request.url)
-    
-@app.get("/oauth/debug")
-def oauth_debug():
-    authorization_url = "https://www.inoreader.com/oauth2/auth"
+    response = RedirectResponse(prepared.url)
 
-    params = {
-        "client_id": os.getenv("INOREADER_CLIENT_ID"),
-        "redirect_uri": REDIRECT_URI,
-        "response_type": "code",
-        "scope": "read",
-    }
+    response.set_cookie(
+        key=OAUTH_STATE_COOKIE,
+        value=state,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=600,
+    )
 
-    request = requests.Request(
-        "GET",
-        authorization_url,
-        params=params,
-    ).prepare()
+    return response
 
-    client_id = os.getenv("INOREADER_CLIENT_ID")
-
-    return {
-        "authorization_url": request.url,
-        "client_id_present": bool(client_id),
-        "client_id_length": len(client_id) if client_id else 0,
-        "redirect_uri": REDIRECT_URI,
-        "scope": "read",
-    }
 
 @app.get("/oauth/callback")
-def oauth_callback(code: str):
+def oauth_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    if error:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "oauth_error",
+                "error": error,
+                "error_description": error_description,
+            },
+        )
+
+    expected_state = request.cookies.get(OAUTH_STATE_COOKIE)
+
+    if not state or not expected_state or not secrets.compare_digest(
+        state,
+        expected_state,
+    ):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "OAuth state validation failed.",
+            },
+        )
+
+    if not code:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "Authorization code not received.",
+            },
+        )
+
     response = requests.post(
         "https://www.inoreader.com/oauth2/token",
         data={
@@ -110,26 +141,40 @@ def oauth_callback(code: str):
             "redirect_uri": REDIRECT_URI,
             "grant_type": "authorization_code",
         },
+        timeout=20,
     )
 
     if response.status_code != 200:
-        return {
-            "status": "error",
-            "status_code": response.status_code,
-            "response": response.text,
-        }
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "token_exchange_error",
+                "status_code": response.status_code,
+                "response": response.text,
+            },
+        )
 
     token_data = response.json()
 
-    return {
-        "status": "authorized",
-        "refresh_token_received": bool(token_data.get("refresh_token")),
-        "access_token_received": bool(token_data.get("access_token")),
-        "message": (
-            "OAuth autorizado. Os tokens não são exibidos "
-            "por segurança."
-        ),
-    }
+    result = JSONResponse(
+        content={
+            "status": "authorized",
+            "access_token_received": bool(
+                token_data.get("access_token")
+            ),
+            "refresh_token_received": bool(
+                token_data.get("refresh_token")
+            ),
+            "message": (
+                "OAuth autorizado. Tokens recebidos, "
+                "mas não exibidos por segurança."
+            ),
+        }
+    )
+
+    result.delete_cookie(OAUTH_STATE_COOKIE)
+
+    return result
 
 
 @mcp.tool()
