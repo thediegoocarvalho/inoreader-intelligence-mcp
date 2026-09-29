@@ -291,7 +291,9 @@ def stream_contents_paged(
     stream_id: str,
     max_items: int = 500,
     page_size: int = 100,
+    start_time: int | None = None,
 ):
+
     if max_items < 1:
         max_items = 1
     if max_items > 3000:
@@ -310,6 +312,9 @@ def stream_contents_paged(
         params = {
             "n": min(page_size, max_items - len(items)),
         }
+        
+        if start_time:
+            params["ot"] = start_time
 
         if continuation:
             params["c"] = continuation
@@ -336,5 +341,6 @@ def stream_contents_paged(
         "items_returned": len(items),
         "pages_fetched": pages,
         "continuation": continuation,
+        "start_time": start_time,
     }
 
