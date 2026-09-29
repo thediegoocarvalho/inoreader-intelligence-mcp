@@ -264,6 +264,37 @@ def subscription_list():
     return inoreader_get("/subscription/list")
 
 @mcp.tool()
+def stream_catalog():
+    """
+    Retorna catálogo dos feeds assinados no Inoreader.
+    Facilita descoberta de fontes pelo agente.
+    Operação exclusivamente de leitura.
+    """
+
+    data = inoreader_get("/subscription/list")
+
+    subscriptions = data.get("subscriptions", [])
+
+    catalog = []
+
+    for item in subscriptions:
+        catalog.append(
+            {
+                "id": item.get("id"),
+                "title": item.get("title"),
+                "categories": [
+                    category.get("label")
+                    for category in item.get("categories", [])
+                ],
+            }
+        )
+
+    return {
+        "total_feeds": len(catalog),
+        "feeds": catalog,
+    }
+
+@mcp.tool()
 def stream_contents(
     stream_id: str,
     count: int = 100,
