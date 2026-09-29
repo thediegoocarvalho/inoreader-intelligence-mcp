@@ -296,11 +296,13 @@ def stream_contents_paged(
 
     if max_items < 1:
         max_items = 1
+
     if max_items > 3000:
         max_items = 3000
 
     if page_size < 1:
         page_size = 1
+
     if page_size > 100:
         page_size = 100
 
@@ -309,10 +311,11 @@ def stream_contents_paged(
     pages = 0
 
     while len(items) < max_items:
+
         params = {
             "n": min(page_size, max_items - len(items)),
         }
-        
+
         if start_time:
             params["ot"] = start_time
 
@@ -325,6 +328,7 @@ def stream_contents_paged(
         )
 
         page_items = data.get("items", [])
+
         if not page_items:
             break
 
@@ -336,7 +340,7 @@ def stream_contents_paged(
         if not continuation:
             break
 
-       next_start_time = start_time
+    next_start_time = start_time
 
     if items:
         timestamps = [
@@ -356,5 +360,3 @@ def stream_contents_paged(
         "start_time": start_time,
         "next_start_time": next_start_time,
     }
- 
- 
