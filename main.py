@@ -336,11 +336,25 @@ def stream_contents_paged(
         if not continuation:
             break
 
+       next_start_time = start_time
+
+    if items:
+        timestamps = [
+            int(item["timestampUsec"])
+            for item in items
+            if item.get("timestampUsec")
+        ]
+
+        if timestamps:
+            next_start_time = max(timestamps) // 1_000_000
+
     return {
         "items": items,
         "items_returned": len(items),
         "pages_fetched": pages,
         "continuation": continuation,
         "start_time": start_time,
+        "next_start_time": next_start_time,
     }
-
+ 
+ 
