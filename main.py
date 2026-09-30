@@ -414,10 +414,10 @@ def ingest_stream_to_archive(
 
         run_status = "completed" if complete else "partial"
 
-    checkpoint_start_time = None
-    checkpoint_timestamp_usec = None
+        checkpoint_start_time = None
+        checkpoint_timestamp_usec = None
 
-    if complete and start_time is not None:
+        if complete and start_time is not None:
         checkpoint = get_stream_checkpoint(stream_id)
 
         previous_timestamp_usec = None
