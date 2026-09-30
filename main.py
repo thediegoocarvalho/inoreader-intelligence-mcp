@@ -133,6 +133,95 @@ def init_database():
 
         conn.commit()
 
+def archive_articles(items: list[dict]) -> dict:
+    inserted = 0
+    existing = 0
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            for item in items:
+                item_id = item.get("id")
+
+                if not item_id:
+                    continue
+
+                title = item.get("title")
+
+                origin = item.get("origin") or {}
+                source_title = origin.get("title")
+
+                alternate = item.get("alternate") or []
+                url = None
+                if alternate and isinstance(alternate, list):
+                    url = alternate[0].get("href")
+
+                summary_obj = item.get("summary") or {}
+                summary = summary_obj.get("content")
+
+                content_obj = item.get("content") or {}
+                content_text = content_obj.get("content")
+
+                published = item.get("published")
+
+                timestamp_usec = item.get("timestampUsec")
+                if timestamp_usec is not None:
+                    timestamp_usec = int(timestamp_usec)
+
+                crawl_time_msec = item.get("crawlTimeMsec")
+                if crawl_time_msec is not None:
+                    crawl_time_msec = int(crawl_time_msec)
+
+                cur.execute(
+                    """
+                    INSERT INTO radar_articles (
+                        inoreader_item_id,
+                        title,
+                        source_title,
+                        url,
+                        published,
+                        timestamp_usec,
+                        crawl_time_msec,
+                        summary,
+                        content_text,
+                        raw_item
+                    )
+                    VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (inoreader_item_id)
+                    DO NOTHING
+                    RETURNING id
+                    """,
+                    (
+                        item_id,
+                        title,
+                        source_title,
+                        url,
+                        published,
+                        timestamp_usec,
+                        crawl_time_msec,
+                        summary,
+                        content_text,
+                        psycopg.types.json.Jsonb(item),
+                    ),
+                )
+
+                result = cur.fetchone()
+
+                if result:
+                    inserted += 1
+                else:
+                    existing += 1
+
+        conn.commit()
+
+    return {
+        "received": len(items),
+        "inserted": inserted,
+        "existing": existing,
+    }
+
 
 def get_access_token():
     response = requests.post(
