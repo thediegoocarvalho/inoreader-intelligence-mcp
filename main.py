@@ -307,7 +307,9 @@ def ingest_stream_to_archive(
     max_timestamp_usec = None
 
     try:
+
         while items_received < max_items:
+
             params = {
                 "n": min(
                     page_size,
@@ -339,7 +341,9 @@ def ingest_stream_to_archive(
             items_existing += archive_result["existing"]
             pages_fetched += 1
 
+
             for item in page_items:
+
                 timestamp_usec = item.get("timestampUsec")
 
                 if timestamp_usec is None:
@@ -353,22 +357,89 @@ def ingest_stream_to_archive(
                 ):
                     max_timestamp_usec = timestamp_usec
 
+
             continuation = data.get("continuation")
 
             if not continuation:
                 break
+
 
         next_start_time = start_time
 
         if max_timestamp_usec is not None:
             next_start_time = max_timestamp_usec // 1_000_000
 
+
         complete = continuation is None
 
         run_status = "completed" if complete else "partial"
 
+
+        checkpoint_start_time = None
+        checkpoint_timestamp_usec = None
+
+
+        if complete and start_time is not None:
+
+            with get_db_connection() as conn:
+
+                with conn.cursor() as cur:
+
+                    cur.execute(
+                        """
+                        SELECT MAX(timestamp_usec)
+                        FROM radar_articles
+                        WHERE timestamp_usec >= %s
+                        """,
+                        (
+                            start_time * 1_000_000,
+                        ),
+                    )
+
+                    checkpoint_timestamp_usec = cur.fetchone()[0]
+
+
+                    if checkpoint_timestamp_usec is not None:
+
+                        checkpoint_start_time = (
+                            checkpoint_timestamp_usec // 1_000_000
+                        )
+
+
+                        cur.execute(
+                            """
+                            INSERT INTO radar_checkpoints (
+                                stream_id,
+                                last_start_time,
+                                last_timestamp_usec,
+                                last_continuation,
+                                last_run_at,
+                                updated_at
+                            )
+                            VALUES (%s, %s, %s, NULL, NOW(), NOW())
+
+                            ON CONFLICT (stream_id)
+
+                            DO UPDATE SET
+                                last_start_time = EXCLUDED.last_start_time,
+                                last_timestamp_usec = EXCLUDED.last_timestamp_usec,
+                                last_continuation = NULL,
+                                last_run_at = NOW(),
+                                updated_at = NOW()
+                            """,
+                            (
+                                stream_id,
+                                checkpoint_start_time,
+                                checkpoint_timestamp_usec,
+                            ),
+                        )
+
+                conn.commit()
+
         with get_db_connection() as conn:
+
             with conn.cursor() as cur:
+
                 cur.execute(
                     """
                     UPDATE radar_ingestion_runs
@@ -381,6 +452,7 @@ def ingest_stream_to_archive(
                         continuation = %s,
                         status = %s,
                         finished_at = NOW()
+
                     WHERE id = %s
                     """,
                     (
@@ -397,6 +469,7 @@ def ingest_stream_to_archive(
 
             conn.commit()
 
+
         return {
             "run_id": run_id,
             "stream_id": stream_id,
@@ -411,9 +484,13 @@ def ingest_stream_to_archive(
             "inoreader_modified": False,
         }
 
+
     except Exception as exc:
+
         with get_db_connection() as conn:
+
             with conn.cursor() as cur:
+
                 cur.execute(
                     """
                     UPDATE radar_ingestion_runs
@@ -426,6 +503,7 @@ def ingest_stream_to_archive(
                         status = 'error',
                         finished_at = NOW(),
                         error_message = %s
+
                     WHERE id = %s
                     """,
                     (
@@ -443,11 +521,8 @@ def ingest_stream_to_archive(
 
         raise
 
-
 # Segurança do transporte MCP para o hostname público do Railway.
 mcp_app = mcp.streamable_http_app()
-
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
