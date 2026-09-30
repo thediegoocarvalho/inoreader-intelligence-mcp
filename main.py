@@ -751,6 +751,27 @@ def archive_stream_sample(
         "inoreader_modified": False,
     }
 
+@mcp.tool()
+def archive_stream_paged(
+    stream_id: str,
+    max_items: int = 3000,
+    page_size: int = 100,
+    start_time: int | None = None,
+):
+    """
+    Arquiva um stream do Inoreader no PostgreSQL com paginação.
+
+    Não retorna os artigos individualmente.
+    Não altera o estado de leitura no Inoreader.
+    """
+
+    return ingest_stream_to_archive(
+        stream_id=stream_id,
+        max_items=max_items,
+        page_size=page_size,
+        start_time=start_time,
+    )
+
 
 @mcp.tool()
 def stream_contents_paged(
