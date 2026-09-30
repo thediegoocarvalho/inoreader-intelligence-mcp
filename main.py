@@ -41,6 +41,37 @@ def get_db_connection():
 
     return psycopg.connect(database_url)
 
+def get_stream_checkpoint(stream_id: str):
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    stream_id,
+                    last_start_time,
+                    last_timestamp_usec,
+                    last_continuation,
+                    last_run_at,
+                    updated_at
+                FROM radar_checkpoints
+                WHERE stream_id = %s
+                """,
+                (stream_id,),
+            )
+
+            row = cur.fetchone()
+
+    if row is None:
+        return None
+
+    return {
+        "stream_id": row[0],
+        "last_start_time": row[1],
+        "last_timestamp_usec": row[2],
+        "last_continuation": row[3],
+        "last_run_at": row[4],
+        "updated_at": row[5],
+    }
 
 def init_database():
     with get_db_connection() as conn:
@@ -278,6 +309,15 @@ def ingest_stream_to_archive(
     if page_size > 100:
         page_size = 100
 
+    if start_time is None and continuation is None:
+        checkpoint = get_stream_checkpoint(stream_id)
+
+        if (
+            checkpoint is not None
+            and checkpoint["last_start_time"] is not None
+        ):
+            start_time = checkpoint["last_start_time"]
+
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -374,65 +414,59 @@ def ingest_stream_to_archive(
 
         run_status = "completed" if complete else "partial"
 
+    checkpoint_start_time = None
+    checkpoint_timestamp_usec = None
 
-        checkpoint_start_time = None
-        checkpoint_timestamp_usec = None
+    if complete and start_time is not None:
+        checkpoint = get_stream_checkpoint(stream_id)
 
+        previous_timestamp_usec = None
+        if checkpoint is not None:
+            previous_timestamp_usec = checkpoint["last_timestamp_usec"]
 
-        if complete and start_time is not None:
+        checkpoint_timestamp_usec = max_timestamp_usec
 
-            with get_db_connection() as conn:
+        if (
+            previous_timestamp_usec is not None
+            and (
+                checkpoint_timestamp_usec is None
+                or previous_timestamp_usec > checkpoint_timestamp_usec
+            )
+        ):
+            checkpoint_timestamp_usec = previous_timestamp_usec
 
-                with conn.cursor() as cur:
+        if checkpoint_timestamp_usec is not None:
+            checkpoint_start_time = checkpoint_timestamp_usec // 1_000_000
 
-                    cur.execute(
-                        """
-                        SELECT MAX(timestamp_usec)
-                        FROM radar_articles
-                        WHERE timestamp_usec >= %s
-                        """,
-                        (
-                            start_time * 1_000_000,
-                        ),
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO radar_checkpoints (
+                        stream_id,
+                        last_start_time,
+                        last_timestamp_usec,
+                        last_continuation,
+                        last_run_at,
+                        updated_at
                     )
+                    VALUES (%s, %s, %s, NULL, NOW(), NOW())
 
-                    checkpoint_timestamp_usec = cur.fetchone()[0]
+                    ON CONFLICT (stream_id)
 
-
-                    if checkpoint_timestamp_usec is not None:
-
-                        checkpoint_start_time = (
-                            checkpoint_timestamp_usec // 1_000_000
-                        )
-
-
-                        cur.execute(
-                            """
-                            INSERT INTO radar_checkpoints (
-                                stream_id,
-                                last_start_time,
-                                last_timestamp_usec,
-                                last_continuation,
-                                last_run_at,
-                                updated_at
-                            )
-                            VALUES (%s, %s, %s, NULL, NOW(), NOW())
-
-                            ON CONFLICT (stream_id)
-
-                            DO UPDATE SET
-                                last_start_time = EXCLUDED.last_start_time,
-                                last_timestamp_usec = EXCLUDED.last_timestamp_usec,
-                                last_continuation = NULL,
-                                last_run_at = NOW(),
-                                updated_at = NOW()
-                            """,
-                            (
-                                stream_id,
-                                checkpoint_start_time,
-                                checkpoint_timestamp_usec,
-                            ),
-                        )
+                    DO UPDATE SET
+                        last_start_time = EXCLUDED.last_start_time,
+                        last_timestamp_usec = EXCLUDED.last_timestamp_usec,
+                        last_continuation = NULL,
+                        last_run_at = NOW(),
+                        updated_at = NOW()
+                    """,
+                    (
+                        stream_id,
+                        checkpoint_start_time,
+                        checkpoint_timestamp_usec,
+                    ),
+                )
 
                 conn.commit()
 
