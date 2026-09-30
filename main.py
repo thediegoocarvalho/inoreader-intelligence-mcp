@@ -263,7 +263,9 @@ def ingest_stream_to_archive(
     max_items: int = 3000,
     page_size: int = 100,
     start_time: int | None = None,
+    continuation: str | None = None,
 ):
+
     if max_items < 1:
         max_items = 1
 
@@ -302,7 +304,6 @@ def ingest_stream_to_archive(
     items_inserted = 0
     items_existing = 0
     pages_fetched = 0
-    continuation = None
     max_timestamp_usec = None
 
     try:
@@ -757,7 +758,9 @@ def archive_stream_paged(
     max_items: int = 3000,
     page_size: int = 100,
     start_time: int | None = None,
+    continuation: str | None = None,
 ):
+
     """
     Arquiva um stream do Inoreader no PostgreSQL com paginação.
 
@@ -766,11 +769,12 @@ def archive_stream_paged(
     """
 
     return ingest_stream_to_archive(
-        stream_id=stream_id,
-        max_items=max_items,
-        page_size=page_size,
-        start_time=start_time,
-    )
+    stream_id=stream_id,
+    max_items=max_items,
+    page_size=page_size,
+    start_time=start_time,
+    continuation=continuation,
+)
 
 
 @mcp.tool()
