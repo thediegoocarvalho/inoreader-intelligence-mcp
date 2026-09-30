@@ -7,6 +7,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 import os
 import secrets
 import requests
+import psycopg
 
 
 mcp = FastMCP(
@@ -32,6 +33,105 @@ OAUTH_STATE_COOKIE = "inoreader_oauth_state"
 
 INOREADER_TOKEN_URL = "https://www.inoreader.com/oauth2/token"
 INOREADER_API_BASE = "https://www.inoreader.com/reader/api/0"
+def get_db_connection():
+    database_url = os.getenv("DATABASE_URL")
+
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured.")
+
+    return psycopg.connect(database_url)
+
+
+def init_database():
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS radar_articles (
+                    id BIGSERIAL PRIMARY KEY,
+                    inoreader_item_id TEXT UNIQUE NOT NULL,
+                    title TEXT,
+                    source_title TEXT,
+                    url TEXT,
+                    published INTEGER,
+                    timestamp_usec BIGINT,
+                    crawl_time_msec BIGINT,
+                    summary TEXT,
+                    content_text TEXT,
+                    raw_item JSONB NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'captured',
+                    strategic_relevance BOOLEAN,
+                    signal_type TEXT,
+                    captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    processed_at TIMESTAMPTZ,
+                    marked_read_at TIMESTAMPTZ
+                )
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS radar_articles_timestamp_idx
+                ON radar_articles (timestamp_usec)
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS radar_articles_published_idx
+                ON radar_articles (published)
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS radar_articles_source_idx
+                ON radar_articles (source_title)
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS radar_articles_status_idx
+                ON radar_articles (status)
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS radar_checkpoints (
+                    stream_id TEXT PRIMARY KEY,
+                    last_start_time BIGINT,
+                    last_timestamp_usec BIGINT,
+                    last_continuation TEXT,
+                    last_run_at TIMESTAMPTZ,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS radar_ingestion_runs (
+                    id BIGSERIAL PRIMARY KEY,
+                    stream_id TEXT NOT NULL,
+                    start_time BIGINT,
+                    next_start_time BIGINT,
+                    items_received INTEGER NOT NULL DEFAULT 0,
+                    items_inserted INTEGER NOT NULL DEFAULT 0,
+                    items_existing INTEGER NOT NULL DEFAULT 0,
+                    pages_fetched INTEGER NOT NULL DEFAULT 0,
+                    continuation TEXT,
+                    status TEXT NOT NULL DEFAULT 'running',
+                    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    finished_at TIMESTAMPTZ,
+                    error_message TEXT
+                )
+                """
+            )
+
+        conn.commit()
 
 
 def get_access_token():
@@ -77,8 +177,11 @@ mcp_app = mcp.streamable_http_app()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_database()
+
     async with mcp.session_manager.run():
         yield
+
 
 
 app = FastAPI(lifespan=lifespan)
@@ -95,6 +198,29 @@ def health():
         "service": "Inoreader Intelligence MCP",
         "mcp_endpoint": "/mcp",
     }
+
+@app.get("/db/health")
+def database_health():
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                result = cur.fetchone()
+
+        return {
+            "status": "ok",
+            "database_connected": result == (1,),
+        }
+
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "database_connected": False,
+                "message": str(exc),
+            },
+        )
 
 
 @app.get("/config")
