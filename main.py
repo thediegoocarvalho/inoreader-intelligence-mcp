@@ -533,6 +533,42 @@ def stream_contents(
     )
 
 @mcp.tool()
+def archive_stream_sample(
+    stream_id: str,
+    count: int = 10,
+):
+    """
+    Busca um pequeno lote de itens no Inoreader e os arquiva
+    no Radar Archive PostgreSQL.
+
+    Não altera estado de leitura no Inoreader.
+    """
+
+    if count < 1:
+        count = 1
+
+    if count > 50:
+        count = 50
+
+    data = inoreader_get(
+        f"/stream/contents/{stream_id}",
+        params={"n": count},
+    )
+
+    items = data.get("items", [])
+
+    archive_result = archive_articles(items)
+
+    return {
+        "stream_id": stream_id,
+        "items_received": len(items),
+        "items_inserted": archive_result["inserted"],
+        "items_existing": archive_result["existing"],
+        "inoreader_modified": False,
+    }
+
+
+@mcp.tool()
 def stream_contents_paged(
     stream_id: str,
     max_items: int = 500,
