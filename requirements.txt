@@ -3,3 +3,5 @@ uvicorn
 mcp>=1.28,<2
 requests
 python-dotenv
+psycopg[binary]>=3.2,<4
+
