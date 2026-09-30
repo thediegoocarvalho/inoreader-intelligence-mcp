@@ -258,6 +258,190 @@ def inoreader_get(path: str, params: dict | None = None):
 
     return response.json()
 
+def ingest_stream_to_archive(
+    stream_id: str,
+    max_items: int = 3000,
+    page_size: int = 100,
+    start_time: int | None = None,
+):
+    if max_items < 1:
+        max_items = 1
+
+    if max_items > 3000:
+        max_items = 3000
+
+    if page_size < 1:
+        page_size = 1
+
+    if page_size > 100:
+        page_size = 100
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO radar_ingestion_runs (
+                    stream_id,
+                    start_time,
+                    status
+                )
+                VALUES (%s, %s, 'running')
+                RETURNING id
+                """,
+                (
+                    stream_id,
+                    start_time,
+                ),
+            )
+
+            run_id = cur.fetchone()[0]
+
+        conn.commit()
+
+    items_received = 0
+    items_inserted = 0
+    items_existing = 0
+    pages_fetched = 0
+    continuation = None
+    max_timestamp_usec = None
+
+    try:
+        while items_received < max_items:
+            params = {
+                "n": min(
+                    page_size,
+                    max_items - items_received,
+                ),
+            }
+
+            if start_time is not None:
+                params["ot"] = start_time
+
+            if continuation:
+                params["c"] = continuation
+
+            data = inoreader_get(
+                f"/stream/contents/{stream_id}",
+                params=params,
+            )
+
+            page_items = data.get("items", [])
+
+            if not page_items:
+                continuation = data.get("continuation")
+                break
+
+            archive_result = archive_articles(page_items)
+
+            items_received += len(page_items)
+            items_inserted += archive_result["inserted"]
+            items_existing += archive_result["existing"]
+            pages_fetched += 1
+
+            for item in page_items:
+                timestamp_usec = item.get("timestampUsec")
+
+                if timestamp_usec is None:
+                    continue
+
+                timestamp_usec = int(timestamp_usec)
+
+                if (
+                    max_timestamp_usec is None
+                    or timestamp_usec > max_timestamp_usec
+                ):
+                    max_timestamp_usec = timestamp_usec
+
+            continuation = data.get("continuation")
+
+            if not continuation:
+                break
+
+        next_start_time = start_time
+
+        if max_timestamp_usec is not None:
+            next_start_time = max_timestamp_usec // 1_000_000
+
+        complete = continuation is None
+
+        run_status = "completed" if complete else "partial"
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE radar_ingestion_runs
+                    SET
+                        next_start_time = %s,
+                        items_received = %s,
+                        items_inserted = %s,
+                        items_existing = %s,
+                        pages_fetched = %s,
+                        continuation = %s,
+                        status = %s,
+                        finished_at = NOW()
+                    WHERE id = %s
+                    """,
+                    (
+                        next_start_time,
+                        items_received,
+                        items_inserted,
+                        items_existing,
+                        pages_fetched,
+                        continuation,
+                        run_status,
+                        run_id,
+                    ),
+                )
+
+            conn.commit()
+
+        return {
+            "run_id": run_id,
+            "stream_id": stream_id,
+            "start_time": start_time,
+            "next_start_time": next_start_time,
+            "items_received": items_received,
+            "items_inserted": items_inserted,
+            "items_existing": items_existing,
+            "pages_fetched": pages_fetched,
+            "continuation": continuation,
+            "complete": complete,
+            "inoreader_modified": False,
+        }
+
+    except Exception as exc:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE radar_ingestion_runs
+                    SET
+                        items_received = %s,
+                        items_inserted = %s,
+                        items_existing = %s,
+                        pages_fetched = %s,
+                        continuation = %s,
+                        status = 'error',
+                        finished_at = NOW(),
+                        error_message = %s
+                    WHERE id = %s
+                    """,
+                    (
+                        items_received,
+                        items_inserted,
+                        items_existing,
+                        pages_fetched,
+                        continuation,
+                        str(exc),
+                        run_id,
+                    ),
+                )
+
+            conn.commit()
+
+        raise
+
 
 # Segurança do transporte MCP para o hostname público do Railway.
 mcp_app = mcp.streamable_http_app()
