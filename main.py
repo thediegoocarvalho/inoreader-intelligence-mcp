@@ -103,6 +103,14 @@ def init_database():
 
             cur.execute(
                 """
+                ALTER TABLE radar_articles
+                ADD COLUMN IF NOT EXISTS timestamp_usec BIGINT
+                """
+                )
+
+
+            cur.execute(
+                """
                 CREATE INDEX IF NOT EXISTS radar_articles_timestamp_idx
                 ON radar_articles (timestamp_usec)
                 """
