@@ -108,6 +108,12 @@ def init_database():
                 """
                 )
 
+            cur.execute(
+                """
+                ALTER TABLE radar_articles
+                ADD COLUMN IF NOT EXISTS published INTEGER
+                """
+                )
 
             cur.execute(
                 """
